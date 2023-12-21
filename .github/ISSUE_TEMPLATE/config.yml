@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: lllorigins Help
+    url: https://github.com/lllorigins/devops-utilities/issues
+    about: Please ask and answer questions here as question
+  - name: GitHub Security Bug Bounty
+    url: https://github.com/lllorigins/devops-utilities/issues
+    about: Please report security vulnerabilities here as bug

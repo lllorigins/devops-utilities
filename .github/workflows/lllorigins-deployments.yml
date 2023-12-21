@@ -1,0 +1,81 @@
+name: 🧙🏽 Deploy lllorigins
+
+on:
+    workflow_dispatch:
+        inputs:
+            environment:
+                type: environment
+                required: true
+                description: Deploy To Envrionment
+            deploy-tag:
+                type: string
+                required: true
+                description: Deplpoy Tag
+            runnerid:
+                type: string
+                required: false
+                description: Runner ID
+concurrency:
+    group: ${{ inputs.environment }}
+    cancel-in-progress: true
+
+jobs:
+    deploy-lllorigins:
+        name: ☄️ Deploy lllorigins ${{ inputs.environment }}
+        environment: ${{ inputs.environment }}
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Configure SSH
+              shell: bash
+              run: |
+                  mkdir -p ~/.ssh/
+                  echo "${{ secrets.SSH_AUTH_KEY }}" > ~/.ssh/${{ inputs.environment }}.key
+                  chmod 600 ~/.ssh/${{ inputs.environment }}.key
+                  cat >> ~/.ssh/config <<END
+                  Host ${{ inputs.environment }}
+                      HostName ${{ secrets.SERVER_HOST }}
+                      Port ${{ secrets.SERVER_PORT }}
+                      User ${{ secrets.USERNAME }}
+                      IdentityFile ~/.ssh/${{ inputs.environment }}.key
+                  END
+
+            - name: SSH Key Scan
+              shell: bash
+              run: |
+                  ssh-keyscan -t rsa ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+            - name: Simple Deploy
+              shell: bash
+              run: |
+                  echo "🏄 Starting Deployment.."
+                  /usr/bin/ssh ${{ inputs.environment }}  << 'END'
+                    curl -H "Authorization: Token ${{ secrets.INTERNAL_PAT }}" -H "Accept: application/vnd.github.v3.raw" -L ${{ secrets.REPO_PATH }} -o ~/init.sh;
+                    sudo INTERNAL_PAT=${{ secrets.REPO_PATH }} AP_PASSWORD=${{ secrets.AP_PASSWORD }} DOCKER_PAT=${{ secrets.DOCKER_PAT }} bash ~/init.sh ${{ inputs.environment }} ${{ inputs.deploy-tag }};
+                  END
+                  echo "✔️ Completed Deployment!"
+
+            - name: Verify Environment
+              shell: bash
+              run: |
+                  echo '# Deployment Summary' >> $GITHUB_STEP_SUMMARY
+                  echo '### ENVIRONMENT:`${{ inputs.environment }}`' >> $GITHUB_STEP_SUMMARY
+                  echo '### DEPLOY_TAG:`${{ inputs.deploy-tag }}`' >> $GITHUB_STEP_SUMMARY
+                  echo '### Health Check Response:' >> $GITHUB_STEP_SUMMARY
+
+                  if [[ "${{ inputs.environment }}" == "DEV" ]]; then
+                      RESPONSE=$(curl --user ${{ secrets.AP_USERNAME }}:${{ secrets.AP_PASSWORD }} -X GET -H "Accept: application/json" ${{ secrets.DEVELOPMENT }} -s);
+                  elif [[ "${{ inputs.environment }}" == "PROD" ]]; then
+                      RESPONSE=$(curl -X GET -H "Accept: application/json" ${{ secrets.HEALTHCHECK }} -s);
+                  elif [[ "${{ inputs.environment }}" == "TOOL" ]]; then
+                      SONAR_RESPONSE=$(curl -s -o /dev/null --user ${{ secrets.AP_USERNAME }}:${{ secrets.AP_PASSWORD }}  -I -w "%{http_code}" ${{ secrets.SONARQUBE }})
+                      PORTAINER_RESPONSE=$(curl -s -o /dev/null --user ${{ secrets.AP_USERNAME }}:${{ secrets.AP_PASSWORD }}  -I -w "%{http_code}" ${{ secrets.PORTAINER }})
+                      RESPONSE="{\"SonarQube\":$SONAR_RESPONSE,\"Portainer\":$PORTAINER_RESPONSE}"
+                  fi
+
+                  echo '```json' >> $GITHUB_STEP_SUMMARY
+                  echo $RESPONSE | jq "."  >> $GITHUB_STEP_SUMMARY
+                  echo '```' >> $GITHUB_STEP_SUMMARY

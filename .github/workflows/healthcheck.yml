@@ -1,0 +1,35 @@
+name: 🩺 Healthcheck lllorigins
+
+on:
+    workflow_dispatch:
+    schedule:
+        - cron:  '0 * * * *'
+
+jobs:
+    healthcheck-lllorigins:
+        name: ❇️ Health Checks
+        strategy:
+            matrix:
+                environment: ["PROD", "TOOL", "DEV"]
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+            - name: Health Check
+              shell: bash
+              run: |
+                  echo '# Health Check Summary' >> $GITHUB_STEP_SUMMARY
+                  echo '### ENVIRONMENT:`${{ matrix.environment }}`' >> $GITHUB_STEP_SUMMARY
+
+                  if [[ "${{ matrix.environment }}" == "DEV" ]]; then
+                      RESPONSE=$(curl --user ${{ secrets.AP_USERNAME }}:${{ secrets.AP_PASSWORD }} -X GET -H "Accept: application/json" ${{ secrets.DEVELOPMENT }} -s);
+                  elif [[ "${{ matrix.environment }}" == "PROD" ]]; then
+                      RESPONSE=$(curl -X GET -H "Accept: application/json" ${{ secrets.HEALTHCHECK }} -s);
+                  elif [[ "${{ matrix.environment }}" == "TOOL" ]]; then
+                      SONAR_RESPONSE=$(curl -s -o /dev/null --user ${{ secrets.AP_USERNAME }}:${{ secrets.AP_PASSWORD }}  -I -w "%{http_code}" ${{ secrets.SONARQUBE }})
+                      PORTAINER_RESPONSE=$(curl -s -o /dev/null --user ${{ secrets.AP_USERNAME }}:${{ secrets.AP_PASSWORD }}  -I -w "%{http_code}" ${{ secrets.PORTAINER }})
+                      RESPONSE="{\"SonarQube\":$SONAR_RESPONSE,\"Portainer\":$PORTAINER_RESPONSE}"
+                  fi
+
+                  echo '```json' >> $GITHUB_STEP_SUMMARY
+                  echo $RESPONSE | jq "."  >> $GITHUB_STEP_SUMMARY
+                  echo '```' >> $GITHUB_STEP_SUMMARY

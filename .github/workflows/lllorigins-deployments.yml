@@ -67,7 +67,9 @@ jobs:
                   echo '### Health Check Response:' >> $GITHUB_STEP_SUMMARY
 
                   if [[ "${{ inputs.environment }}" == "DEV" ]]; then
-                      RESPONSE=$(curl --user ${{ secrets.AP_USERNAME }}:${{ secrets.AP_PASSWORD }} -X GET -H "Accept: application/json" ${{ secrets.DEVELOPMENT }} -s);
+                     RESPONSE=$(curl --user ${{ secrets.AP_USERNAME }}:${{ secrets.AP_PASSWORD }} -X GET -H "Accept: application/json" ${{ secrets.DEVELOPMENT }} -s);
+                  elif [[ "${{ inputs.environment }}" == "STG" ]]; then
+                      RESPONSE=$(curl --user ${{ secrets.AP_USERNAME }}:${{ secrets.AP_PASSWORD }} -X GET -H "Accept: application/json" ${{ secrets.STAGING }} -s);
                   elif [[ "${{ inputs.environment }}" == "PROD" ]]; then
                       RESPONSE=$(curl -X GET -H "Accept: application/json" ${{ secrets.HEALTHCHECK }} -s);
                   elif [[ "${{ inputs.environment }}" == "TOOL" ]]; then

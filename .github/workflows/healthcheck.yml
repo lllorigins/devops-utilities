@@ -10,7 +10,7 @@ jobs:
         name: ❇️ Health Checks
         strategy:
             matrix:
-                environment: ["PROD", "TOOL", "DEV"]
+                environment: ["PROD", "TOOL", "STG", "DEV"]
         runs-on: ubuntu-latest
         timeout-minutes: 5
         steps:
@@ -21,7 +21,9 @@ jobs:
                   echo '### ENVIRONMENT:`${{ matrix.environment }}`' >> $GITHUB_STEP_SUMMARY
 
                   if [[ "${{ matrix.environment }}" == "DEV" ]]; then
-                      RESPONSE=$(curl --user ${{ secrets.AP_USERNAME }}:${{ secrets.AP_PASSWORD }} -X GET -H "Accept: application/json" ${{ secrets.DEVELOPMENT }} -s);
+                     RESPONSE=$(curl --user ${{ secrets.AP_USERNAME }}:${{ secrets.AP_PASSWORD }} -X GET -H "Accept: application/json" ${{ secrets.DEVELOPMENT }} -s);
+                  elif [[ "${{ matrix.environment }}" == "STG" ]]; then
+                      RESPONSE=$(curl --user ${{ secrets.AP_USERNAME }}:${{ secrets.AP_PASSWORD }} -X GET -H "Accept: application/json" ${{ secrets.STAGING }} -s);
                   elif [[ "${{ matrix.environment }}" == "PROD" ]]; then
                       RESPONSE=$(curl -X GET -H "Accept: application/json" ${{ secrets.HEALTHCHECK }} -s);
                   elif [[ "${{ matrix.environment }}" == "TOOL" ]]; then

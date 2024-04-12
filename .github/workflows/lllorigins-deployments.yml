@@ -71,7 +71,7 @@ jobs:
                   elif [[ "${{ inputs.environment }}" == "STG" ]]; then
                       RESPONSE=$(curl --user ${{ secrets.AP_USERNAME }}:${{ secrets.AP_PASSWORD }} -X GET -H "Accept: application/json" ${{ secrets.STAGING }} -s);
                   elif [[ "${{ inputs.environment }}" == "PROD" ]]; then
-                      RESPONSE=$(curl -X GET -H "Accept: application/json" ${{ secrets.HEALTHCHECK }} -s);
+                      RESPONSE=$(curl --user ${{ secrets.AP_USERNAME }}:${{ secrets.AP_PASSWORD }} -X GET -H "Accept: application/json" ${{ secrets.HEALTHCHECK }} -s);
                   elif [[ "${{ inputs.environment }}" == "TOOL" ]]; then
                       SONAR_RESPONSE=$(curl -s -o /dev/null --user ${{ secrets.AP_USERNAME }}:${{ secrets.AP_PASSWORD }}  -I -w "%{http_code}" ${{ secrets.SONARQUBE }})
                       PORTAINER_RESPONSE=$(curl -s -o /dev/null --user ${{ secrets.AP_USERNAME }}:${{ secrets.AP_PASSWORD }}  -I -w "%{http_code}" ${{ secrets.PORTAINER }})

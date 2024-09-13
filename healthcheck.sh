@@ -44,3 +44,6 @@ do
   fi
   sleep 1;
 done
+
+echo "Sleeping 10s more!"
+sleep 10;

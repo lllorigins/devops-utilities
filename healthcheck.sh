@@ -6,8 +6,8 @@ echo "📃 Starting healthcheck.sh"
 service_name="$1"
 # Replicas count. Defau;t: 1
 replica_count=$((${2:-"1"}));
-# Timeout in seconds. Default: 180
-timeout=$((${3:-240}));
+# Timeout in seconds. Default: 300
+timeout=$((${3:-300}));
 
 if [ -z $service_name ]; then
   echo "Service Name not Specified";
@@ -15,7 +15,6 @@ if [ -z $service_name ]; then
 fi
 
 echo "Service: $service_name";
-echo "Replicas: $replica_count";
 echo "Timeout: $timeout sec";
 
 # Need this to make sure the docker deploy is reflected
@@ -28,11 +27,11 @@ do
   try=$(($try + 1));
   printf "🟨";
   is_healthy="false"
-  replicas=$(docker service ls --filter name=$service_name  --format='{{json .Replicas}}')
-  if [ "$replicas" ==  "\"$replica_count/$replica_count\"" ]; then
+  health_status=$(docker inspect --format='{{json .State.Health.Status}}' $service_name)
+  if [ "$health_status" ==  "\"healthy\"" ]; then
     is_healthy="true"
     printf "🟩\n";
-    if [ "$service_name" ==  "lllorigins_web-ui" ]; then
+    if [ "$service_name" ==  "web-ui" ]; then
         printf "🚛 Removing Maintenance Mode\n"
         sudo rm -f /var/www/lllorigins.com/public_html/common/maintenance/active.html
     fi

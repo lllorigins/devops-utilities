@@ -15,6 +15,14 @@ on:
                 type: string
                 required: false
                 description: Runner ID
+            github-repository:
+                type: string
+                required: true
+                description: Repository Name
+            github-sha:
+                type: string
+                required: true
+                description: Current Sha
 concurrency:
     group: ${{ inputs.environment }}
     cancel-in-progress: true
@@ -81,3 +89,47 @@ jobs:
                   echo '```json' >> $GITHUB_STEP_SUMMARY
                   echo $RESPONSE | jq "."  >> $GITHUB_STEP_SUMMARY
                   echo '```' >> $GITHUB_STEP_SUMMARY
+    
+    newrelic:
+        runs-on: ubuntu-latest
+        if: inputs.environment != 'TOOL'
+        environment: ${{ inputs.environment }}
+        needs:
+            - deploy-lllorigins
+        name: 📌 New Relic Deployment Marker
+        steps:
+            # This step builds a var with the release tag value to use later
+            - name: Set Release Version from Tag
+              run: |
+                echo "RELEASE_VERSION=${{ inputs.deploy-tag }}" >> $GITHUB_ENV
+           
+            # This step creates a new Change Tracking Marker
+            - name: WEB_UI Marker
+              uses: newrelic/deployment-marker-action@v2.5.1
+              with:
+                apiKey: "${{ secrets.NEW_RELIC_API_KEY }}"
+                guid: "${{ secrets.NEW_RELIC_DEPLOYMENT_ENTITY_GUID_WEB_UI }}"
+                changelog: "https://github.com/${{ inputs.github-repository }}/releases/tag/${{ inputs.deploy-tag }}"
+                commit: "${{ inputs.github-sha }}"
+                description: "Automated Release via Github Actions"
+                deeplink: "https://github.com/${{ inputs.github-repository }}/commit/${{ inputs.github-sha }}"
+                deploymenttype: "ROLLING"
+                region: "US"
+                version: "${{ inputs.deploy-tag }}"
+                user: "${{ github.actor }}"
+                groupid: "lllorigins Release: ${{ inputs.deploy-tag }}"
+
+            - name: PROCESSES Marker
+              uses: newrelic/deployment-marker-action@v2.5.1
+              with:
+                  apiKey: "${{ secrets.NEW_RELIC_API_KEY }}"
+                  guid: "${{ secrets.NEW_RELIC_DEPLOYMENT_ENTITY_GUID_PROCESSES }}"
+                  changelog: "https://github.com/${{ inputs.github-repository }}/releases/tag/${{ inputs.deploy-tag }}"
+                  commit: "${{ inputs.github-sha }}"
+                  description: "Automated Release via Github Actions"
+                  deeplink: "https://github.com/${{ inputs.github-repository }}/commit/${{ inputs.github-sha }}"
+                  deploymenttype: "ROLLING"
+                  region: "US"
+                  version: "${{ inputs.deploy-tag }}"
+                  user: "${{ github.actor }}"
+                  groupid: "lllorigins Release: ${{ inputs.deploy-tag }}"

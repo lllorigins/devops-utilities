@@ -114,6 +114,7 @@ jobs:
                 groupid: "lllorigins Release: ${{ inputs.deploy-tag }}"
 
             - name: PROCESSES Marker
+              if: inputs.environment != 'TOOL' && inputs.environment != 'DEV'
               uses: newrelic/deployment-marker-action@v2.5.1
               with:
                   apiKey: "${{ secrets.NEW_RELIC_API_KEY }}"

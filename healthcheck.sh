@@ -7,7 +7,7 @@ service_name="$1"
 # Replicas count. Defau;t: 1
 replica_count=$((${2:-"1"}));
 # Timeout in seconds. Default: 300
-timeout=$((${3:-300}));
+timeout=$((${3:-600}));
 
 if [[ -z $service_name ]]; then
   echo "Service Name not Specified";

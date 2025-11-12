@@ -31,7 +31,7 @@ jobs:
     deploy-lllorigins:
         name: ☄️ Deploy lllorigins ${{ inputs.environment }}
         environment: ${{ inputs.environment }}
-        runs-on: ubuntu-latest
+        runs-on: self-hosted
         timeout-minutes: 30
         steps:
             - name: Checkout
@@ -89,29 +89,29 @@ jobs:
                   echo '```json' >> $GITHUB_STEP_SUMMARY
                   echo $RESPONSE | jq "."  >> $GITHUB_STEP_SUMMARY
                   echo '```' >> $GITHUB_STEP_SUMMARY
-    
+
             # This step builds a var with the release tag value to use later
             - name: Set Release Version from Tag
               if: inputs.environment != 'TOOL'
               run: |
-                echo "RELEASE_VERSION=${{ inputs.deploy-tag }}" >> $GITHUB_ENV
-           
+                  echo "RELEASE_VERSION=${{ inputs.deploy-tag }}" >> $GITHUB_ENV
+
             # This step creates a new Change Tracking Marker
             - name: WEB_UI Marker
               if: inputs.environment != 'TOOL'
               uses: newrelic/deployment-marker-action@v2.5.1
               with:
-                apiKey: "${{ secrets.NEW_RELIC_API_KEY }}"
-                guid: "${{ secrets.NEW_RELIC_DEPLOYMENT_ENTITY_GUID_WEB_UI }}"
-                changelog: "https://github.com/${{ inputs.github-repository }}/releases/tag/${{ inputs.deploy-tag }}"
-                commit: "${{ inputs.github-sha }}"
-                description: "Automated Release via Github Actions"
-                deeplink: "https://github.com/${{ inputs.github-repository }}/commit/${{ inputs.github-sha }}"
-                deploymenttype: "ROLLING"
-                region: "US"
-                version: "${{ inputs.deploy-tag }}"
-                user: "${{ github.actor }}"
-                groupid: "lllorigins Release: ${{ inputs.deploy-tag }}"
+                  apiKey: "${{ secrets.NEW_RELIC_API_KEY }}"
+                  guid: "${{ secrets.NEW_RELIC_DEPLOYMENT_ENTITY_GUID_WEB_UI }}"
+                  changelog: "https://github.com/${{ inputs.github-repository }}/releases/tag/${{ inputs.deploy-tag }}"
+                  commit: "${{ inputs.github-sha }}"
+                  description: "Automated Release via Github Actions"
+                  deeplink: "https://github.com/${{ inputs.github-repository }}/commit/${{ inputs.github-sha }}"
+                  deploymenttype: "ROLLING"
+                  region: "US"
+                  version: "${{ inputs.deploy-tag }}"
+                  user: "${{ github.actor }}"
+                  groupid: "lllorigins Release: ${{ inputs.deploy-tag }}"
 
             - name: PROCESSES Marker
               if: inputs.environment != 'TOOL' && inputs.environment != 'DEV'

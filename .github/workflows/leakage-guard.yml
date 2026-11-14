@@ -1,0 +1,56 @@
+name: 🔒 Leakage Guard
+
+# Scans repository files for patterns that would reveal private infrastructure
+# details, credentials, or internal identifiers.
+
+on:
+    pull_request:
+    push:
+        branches: [master]
+
+jobs:
+    leakage-guard:
+        name: Check for sensitive patterns
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v6
+
+            - name: Scan for sensitive patterns
+              run: |
+                  set -euo pipefail
+                  FAILED=0
+
+                  check_pattern() {
+                    local pattern="$1"
+                    local description="$2"
+                    if grep -rnE --exclude-dir=".git" "$pattern" . 2>/dev/null \
+                        | grep -vE '^(\./)?\.github/workflows/leakage-guard\.yml:' \
+                        | grep -v "^Binary"; then
+                      echo "::error::Leakage detected — pattern '$description' found"
+                      FAILED=1
+                    fi
+                  }
+
+                  # OCI resource identifiers
+                  check_pattern 'ocid1\.[a-z0-9_]+\.oc[0-9]+' "OCI resource identifier (must live in secrets)"
+                  # Hardcoded OCIR hostnames (region-prefixed)
+                  check_pattern '[a-z0-9-]+\.ocir\.io' "hardcoded OCIR hostname (must come from secrets)"
+                  # Hardcoded private domains
+                  check_pattern 'lllorigins\.com' "private domain literal (must come from secrets)"
+                  # Private keys or common token formats
+                  check_pattern '(-----BEGIN [A-Z ]*PRIVATE KEY-----|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16})' "credential or private key material"
+
+                  # Disallow checking out any other repository from public workflows
+                  if grep -rnE '(^|[[:space:]])repository:[[:space:]]*' .github/workflows/ 2>/dev/null \
+                      | grep -v "^\.github/workflows/leakage-guard\.yml:"; then
+                    echo "::error::Leakage detected — explicit repository checkout target found in workflow YAML"
+                    FAILED=1
+                  fi
+
+                  if [ "$FAILED" -ne 0 ]; then
+                    echo ""
+                    echo "Fix: replace sensitive literals with \${{ secrets.X }} references or generic identifiers."
+                    exit 1
+                  fi
+                  echo "Leakage guard: no sensitive patterns found."

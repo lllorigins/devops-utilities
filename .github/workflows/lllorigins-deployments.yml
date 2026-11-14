@@ -1,0 +1,220 @@
+name: 🎯 Helm Deploy
+
+on:
+    workflow_dispatch:
+        inputs:
+            environment:
+                type: environment
+                required: true
+                description: Target GitHub Environment (stg / prod)
+            service:
+                type: string
+                required: true
+                description: Service identifier to deploy
+            deploy-tag:
+                type: string
+                required: true
+                description: Semver version tag to deploy (e.g. v1.2.3)
+            github-repository:
+                type: string
+                required: true
+                description: Source repository (owner/repo) — used for release marker link
+            github-sha:
+                type: string
+                required: true
+                description: Commit SHA — used for release marker deeplink
+            smoke-url:
+                type: string
+                required: false
+                default: ""
+                description: Optional post-deploy smoke-test URL (caller-supplied, masked on receipt)
+
+concurrency:
+    group: ${{ inputs.service }}-${{ inputs.environment }}
+    cancel-in-progress: false
+
+jobs:
+    deploy-helm:
+        name: ⎈ Deploy ${{ inputs.service }} → ${{ inputs.environment }}
+        environment: ${{ inputs.environment }}
+        runs-on: self-hosted
+        timeout-minutes: 30
+        permissions:
+            id-token: write
+            contents: read
+        steps:
+            - name: Validate inputs
+              shell: bash
+              env:
+                  SERVICE: ${{ inputs.service }}
+                  ENVIRONMENT: ${{ inputs.environment }}
+                  TAG: ${{ inputs.deploy-tag }}
+              run: |
+                  if [[ ! "${SERVICE}" =~ ^[a-z][a-z0-9-]*$ ]]; then
+                    echo "::error::Invalid service identifier"
+                    exit 1
+                  fi
+                  if [[ ! "${ENVIRONMENT}" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+                    echo "::error::Invalid environment identifier"
+                    exit 1
+                  fi
+                  if [[ ! "${TAG}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([.+-][0-9A-Za-z.-]+)*$ ]]; then
+                    echo "::error::Invalid deploy-tag format"
+                    exit 1
+                  fi
+
+            - name: Mask sensitive inputs
+              if: inputs.smoke-url != ''
+              shell: bash
+              env:
+                  SMOKE_URL: ${{ inputs.smoke-url }}
+              run: |
+                  echo "::add-mask::${SMOKE_URL}"
+
+            - name: Configure kubeconfig
+              shell: bash
+              env:
+                  KUBECONFIG_B64: ${{ secrets.OCI_KUBECONFIG }}
+              run: |
+                  KUBECONFIG_PATH="${RUNNER_TEMP}/kubeconfig"
+                  (umask 077 && printf '%s' "${KUBECONFIG_B64}" | base64 -d > "${KUBECONFIG_PATH}")
+                  chmod 600 "${KUBECONFIG_PATH}"
+                  echo "KUBECONFIG=${KUBECONFIG_PATH}" >> "$GITHUB_ENV"
+
+            - name: Derive chart registry
+              id: registry
+              shell: bash
+              env:
+                  REGION: ${{ secrets.OCIR_REGION_PROD }}
+                  NS: ${{ secrets.OCIR_TENANCY_NAMESPACE_PROD }}
+              run: |
+                  echo "::add-mask::${REGION}"
+                  echo "::add-mask::${NS}"
+                  HOST="${REGION}.ocir.io"
+                  CHART_REGISTRY="oci://${HOST}/${NS}/lllorigins/charts"
+                  echo "::add-mask::${HOST}"
+                  echo "::add-mask::${CHART_REGISTRY}"
+                  echo "host=${HOST}" >> "$GITHUB_OUTPUT"
+                  echo "chart_registry=${CHART_REGISTRY}" >> "$GITHUB_OUTPUT"
+
+            - name: Log in to chart registry
+              uses: docker/login-action@v4
+              with:
+                  registry: ${{ steps.registry.outputs.host }}
+                  username: ${{ secrets.OCIR_USERNAME }}
+                  password: ${{ secrets.OCIR_AUTH_TOKEN }}
+
+            - name: Setup Helm
+              uses: azure/setup-helm@v5
+
+            - name: Pull chart
+              shell: bash
+              env:
+                  CHART_REGISTRY: ${{ steps.registry.outputs.chart_registry }}
+                  TAG: ${{ inputs.deploy-tag }}
+                  SERVICE: ${{ inputs.service }}
+              run: |
+                  rm -rf ./chart
+                  helm pull "${CHART_REGISTRY}/${SERVICE}" --version "${TAG#v}" --untar --untardir ./chart
+
+            - name: Helm deploy
+              shell: bash
+              env:
+                  K8S_NAMESPACE: ${{ secrets.K8S_NAMESPACE }}
+                  ENVIRONMENT: ${{ inputs.environment }}
+                  TAG: ${{ inputs.deploy-tag }}
+                  SERVICE: ${{ inputs.service }}
+              run: |
+                  helm upgrade --install "${SERVICE}" "./chart/${SERVICE}" \
+                    --version "${TAG#v}" \
+                    --namespace "${K8S_NAMESPACE}" \
+                    --values "./chart/${SERVICE}/values-${ENVIRONMENT}.yaml" \
+                    --set image.tag="${TAG}" \
+                    --timeout 300s \
+                    --wait
+
+            - name: Smoke test
+              shell: bash
+              env:
+                  SMOKE_URL: ${{ inputs.smoke-url }}
+                  SMOKE_SECRET: ${{ secrets.SYNTHETIC_HEALTHCHECK_HMAC_KEY }}
+              run: |
+                  if [ -z "${SMOKE_URL}" ]; then
+                    echo "No smoke URL specified, skipping smoke test."
+                    exit 0
+                  fi
+                  echo "::add-mask::${SMOKE_URL}"
+                  echo "Executing smoke test..."
+
+                  SUCCESS=false
+                  for i in {1..6}; do
+                    response=$(curl -fsSL --max-time 10 \
+                      -H "X-Synthetic-Secret: ${SMOKE_SECRET}" \
+                      "${SMOKE_URL}" 2>/dev/null || true)
+                    if echo "${response}" | grep -qE '((^|[^A-Za-z])HEALTHY([^A-Za-z]|$)|"status"[[:space:]]*:[[:space:]]*"ok")' \
+                        && ! echo "${response}" | grep -qi "UNHEALTHY"; then
+                      echo "Smoke test passed on attempt ${i}."
+                      SUCCESS=true
+                      break
+                    fi
+                    echo "Attempt ${i} waiting for service convergence; retrying in 5s..."
+                    sleep 5
+                  done
+
+                  if [ "${SUCCESS}" != "true" ]; then
+                    echo "::error::Smoke test failed: readiness check did not pass"
+                    exit 1
+                  fi
+
+            - name: Deployment summary
+              shell: bash
+              env:
+                  SERVICE: ${{ inputs.service }}
+                  ENVIRONMENT: ${{ inputs.environment }}
+                  DEPLOY_TAG: ${{ inputs.deploy-tag }}
+              run: |
+                  {
+                    echo '# Deployment Summary'
+                    echo "### SERVICE: \`${SERVICE}\`"
+                    echo "### ENVIRONMENT: \`${ENVIRONMENT}\`"
+                    echo "### DEPLOY_TAG: \`${DEPLOY_TAG}\`"
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Resolve New Relic Entity GUID
+              id: nr-guid
+              shell: bash
+              env:
+                  SERVICE: ${{ inputs.service }}
+                  NR_GUID_API: ${{ secrets.NEW_RELIC_DEPLOYMENT_ENTITY_GUID_API }}
+                  NR_GUID_UI: ${{ secrets.NEW_RELIC_DEPLOYMENT_ENTITY_GUID_UI }}
+                  NR_GUID_PROCESSES: ${{ secrets.NEW_RELIC_DEPLOYMENT_ENTITY_GUID_PROCESSES }}
+              run: |
+                  SVC_UPPER="$(printf '%s' "${SERVICE}" | tr '[:lower:]-' '[:upper:]_')"
+                  if [[ "${SVC_UPPER}" =~ ^[A-Z0-9_]+$ ]]; then
+                    VAR_NAME="NR_GUID_${SVC_UPPER}"
+                    echo "guid=${!VAR_NAME:-}" >> "$GITHUB_OUTPUT"
+                  fi
+
+            - name: New Relic deployment marker
+              if: steps.nr-guid.outputs.guid != ''
+              continue-on-error: true
+              uses: newrelic/deployment-marker-action@v2.5.1
+              with:
+                  apiKey: "${{ secrets.NEW_RELIC_API_KEY }}"
+                  guid: "${{ steps.nr-guid.outputs.guid }}"
+                  changelog: "https://github.com/${{ inputs.github-repository }}/releases/tag/${{ inputs.deploy-tag }}"
+                  commit: "${{ inputs.github-sha }}"
+                  description: "Automated Release via Github Actions"
+                  deeplink: "https://github.com/${{ inputs.github-repository }}/commit/${{ inputs.github-sha }}"
+                  deploymenttype: "ROLLING"
+                  region: "US"
+                  version: "${{ inputs.deploy-tag }}"
+                  user: "${{ github.actor }}"
+                  groupid: "${{ inputs.service }} Release: ${{ inputs.deploy-tag }}"
+
+            - name: Cleanup runner workspace credentials
+              if: always()
+              shell: bash
+              run: |
+                  rm -f "${RUNNER_TEMP}/kubeconfig" "$HOME/.kube/config"
+                  rm -rf ./chart
